@@ -18,10 +18,13 @@
          create_ring/2,
          create_ring/3,
          delete_ring/1,
+         has_ring/1,
          add_node/2,
          remove_node/2,
          find_node/2,
          set_mode/2,
+         calc_hash/2,
+         get_nodes/3,
          stop/0
 ]).
 
@@ -71,6 +74,9 @@ create_ring(Ring, NumReplicas) ->
 delete_ring(Ring) ->
     gen_server:call(?SERVER, {delete_ring, Ring}).
     
+has_ring(Ring) ->
+    gen_server:call(?SERVER, {has_ring, Ring}).
+    
 add_node(Ring, Node) when is_list(Node) ->
     add_node(Ring, list_to_binary(Node));
     
@@ -92,6 +98,19 @@ find_node(Ring, Key) when is_binary(Key) ->
 set_mode(Ring, Mode) when is_integer(Mode) ->
     gen_server:call(?SERVER, {set_mode, {Ring, Mode}}).
     
+calc_hash(Ring, Key) when is_list(Key) ->
+    calc_hash(Ring, list_to_binary(Key));
+
+calc_hash(Ring, Key) when is_binary(Key) ->
+    gen_server:call(?SERVER, {calc_hash, {Ring, Key}}).
+
+get_nodes(Ring, Key, NodesNum) when is_list(Key) ->
+    get_nodes(Ring, list_to_binary(Key), NodesNum);
+
+get_nodes(Ring, Key, NodesNum) when is_binary(Key) ->
+    gen_server:call(?SERVER, {get_nodes, {Ring, NodesNum, Key}}).
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -130,6 +149,14 @@ handle_call({delete_ring, Ring}, _From, #state{ port = Port, rings = Rings } = S
             end;
         _ ->
             {reply, {error, ring_not_found}, State}
+    end;
+
+handle_call({has_ring, Ring}, _From, #state{ port = Port, rings = Rings } = State) ->
+    case dict:find(Ring, Rings) of
+        {ok, _} ->
+            {reply, true, State};
+        _ ->
+            {reply, false, State}
     end;
 
 handle_call({add_node, {Ring, Node}}, _From, #state{ port = Port, rings = Rings } = State) ->
@@ -186,6 +213,30 @@ handle_call({set_mode, {Ring, Mode}}, _From, #state{port = Port, rings = Rings} 
             {reply, {error, ring_not_found}, State}
     end;
 
+handle_call({calc_hash, {Ring, Key}}, From, #state{ port = Port, rings = Rings, queue = Queue } = State) ->
+    case dict:find(Ring, Rings) of
+        {ok, Index} ->
+            KeySize = size(Key),
+            Port ! {self(), {command, <<7:8, Index:32, KeySize:32, Key/binary>>}},
+            {noreply, State#state{queue = queue:in(From, Queue)}};
+            % receive 
+            %     {Port, {data, <<Value/binary>>}} ->
+            %         {reply, {ok, Value}, State}
+            % end;
+        _ ->
+            {reply, {error, ring_not_found}, State}
+    end;
+
+handle_call({get_nodes, {Ring, NodeNum, Key}}, From, #state{ port = Port, rings = Rings, queue = Queue } = State) ->
+    case dict:find(Ring, Rings) of
+        {ok, Index} ->
+            KeySize = size(Key),
+            Port ! {self(), {command, <<9:8, Index:32, NodeNum:32, KeySize:32, Key/binary>>}},
+            {noreply, State#state{queue = queue:in(From, Queue)}};
+        _ ->
+            {reply, {error, ring_not_found}, State}
+    end;
+
 handle_call(stop, _From, State) ->
     {stop, normal, State}.
 
@@ -200,6 +251,8 @@ handle_info({Port, {data, Data}}, #state{port = Port, queue = Queue} = State) ->
             {error, node_not_found};
         <<1:8>> ->
             {error, unknown_error};
+        <<8:8, Nodes/binary>> ->
+            {ok, binary:split(Nodes, <<"\0">>, [global])};
         <<Node/binary>> ->
             {ok, Node}
     end,
@@ -301,5 +354,25 @@ set_mode_libmemcached_test() ->
     Ring = "myring",
     ?assert(create_ring(Ring, 1, ?HASH_RING_FUNCTION_MD5) == ok),
     ?assertEqual(ok, set_mode(Ring, ?HASH_RING_MODE_LIBMEMCACHED_COMPAT)).
+
+calc_hash_test() ->
+    setup_driver(),
+    Ring = "ring",
+    ?assert(create_ring(Ring, 64) == ok),
+    % {ok, <<127, 60, 91, 194, 117, 218, 138, 51>>} = calc_hash(Ring, <<"foo">>).
+    ?assert(calc_hash(Ring, <<"foo">>) == {ok, <<127, 60, 91, 194, 117, 218, 138, 51>>}),
+    ?assert(calc_hash(Ring, <<"foo2">>) == {ok, <<59, 187, 201, 237, 189, 250, 132, 39>>}).
+
+get_nodes_test() ->
+    setup_driver(),
+    Ring = "ring",
+    ?assert(create_ring(Ring, 128) == ok),
+    ?assert(add_node(Ring, <<"node1">>) == ok),
+    ?assert(add_node(Ring, <<"node2">>) == ok),
+    ?assert(add_node(Ring, <<"node3">>) == ok),
+    ?assert(get_nodes(Ring, <<"foo">>, 1) == {ok, [<<"node3">>]}),
+    ?assert(get_nodes(Ring, <<"foo">>, 2) == {ok, [<<"node3">>, <<"node1">>]}),
+    ?assert(get_nodes(Ring, <<"foo">>, 3) == {ok, [<<"node3">>, <<"node1">>, <<"node2">>]}).
+
 
 -endif.

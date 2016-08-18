@@ -9,6 +9,7 @@ typedef int ErlDrvSizeT;
 typedef int ErlDrvSSizeT;
 #endif
 
+
 #include "hash_ring.h"
 
 /**
@@ -24,6 +25,9 @@ typedef int ErlDrvSSizeT;
 #define COMMAND_REMOVE_NODE     0x04
 #define COMMAND_FIND_NODE       0x05
 #define COMMAND_SET_MODE        0x06
+#define COMMAND_CALC_HASH       0x07
+#define COMMAND_GET_NEXT_NODE   0x08
+#define COMMAND_GET_NODES       0x09
 
 #define RETURN_OK 0x00
 #define RETURN_ERR 0x01
@@ -173,7 +177,50 @@ static void hash_ring_drv_output(ErlDrvData handle, char *buff, ErlDrvSizeT buff
             }
         }
     }
-    
+
+    else if(bufflen >= 9 && buff[0] == COMMAND_CALC_HASH) {
+
+        uint32_t index = readUint32((unsigned char*)&buff[1]);
+        uint32_t keyLen = readUint32((unsigned char*)&buff[5]);
+
+        if((bufflen - 9) == keyLen && d->numRings > index && d->ring_usage[index] == 1) {
+            uint64_t keyInt;
+            if(hash_ring_hash(d->rings[index], (unsigned char*)&buff[9], keyLen, &keyInt) != -1) {
+                keyInt = htonll(keyInt);
+                driver_output(d->port, (char*)&keyInt, sizeof(keyInt));
+                return;
+            }
+        }
+    }
+    else if(bufflen >= 13 && buff[0] == COMMAND_GET_NODES) {
+        uint32_t index = readUint32((unsigned char*)&buff[1]);
+        uint32_t node_num = readUint32((unsigned char*)&buff[5]);
+        uint32_t keyLen = readUint32((unsigned char*)&buff[9]);
+        if((bufflen - 13) == keyLen && d->numRings > index && d->ring_usage[index] == 1) {
+            hash_ring_node_t **nodes = (hash_ring_node_t**)malloc(sizeof(hash_ring_node_t*)*node_num);
+            int res = hash_ring_find_nodes(d->rings[index], (unsigned char*)&buff[9], keyLen, nodes, node_num);
+            if(res != -1) {
+                int size = 0;
+                int i;
+                for (i=0; i<res; i++) {
+                    size += nodes[i]->nameLen+1;
+                }
+                char *buffer = malloc(size+1);
+                size = 0;
+                buffer[size++] = 8;
+                for (i=0; i<res; i++) {
+                    strncpy(buffer+size, (char*)nodes[i]->name, nodes[i]->nameLen);
+                    size += nodes[i]->nameLen;
+                    buffer[size++] = '\0';
+                }
+                driver_output(d->port, buffer, size-1);
+                free(buffer);
+                free(nodes);
+                return;
+            }
+        }
+    }
+
     // default return
     driver_output(d->port, &res, 1);
 }

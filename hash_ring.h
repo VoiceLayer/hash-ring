@@ -190,4 +190,6 @@ void hash_ring_print(hash_ring_t *ring);
  */
 int hash_ring_set_mode(hash_ring_t *ring, HASH_MODE mode);
 
+int hash_ring_hash(hash_ring_t *ring, uint8_t *data, uint8_t dataLen, uint64_t *hash);
+
 #endif

@@ -73,7 +73,7 @@ void hash_ring_free(hash_ring_t *ring) {
     free(ring);
 }
 
-static int hash_ring_hash(hash_ring_t *ring, uint8_t *data, uint8_t dataLen, uint64_t *hash) {
+int hash_ring_hash(hash_ring_t *ring, uint8_t *data, uint8_t dataLen, uint64_t *hash) {
     if(ring->hash_fn == HASH_FUNCTION_MD5) {
         uint8_t digest[16];
         md5_state_t state;
