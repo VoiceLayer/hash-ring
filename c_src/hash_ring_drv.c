@@ -209,9 +209,9 @@ static void hash_ring_drv_output(ErlDrvData handle, char *buff, ErlDrvSizeT buff
                 size = 0;
                 buffer[size++] = 8;
                 for (i=0; i<res; i++) {
-                    strncpy(buffer+size, (char*)nodes[i]->name, nodes[i]->nameLen);
+                    memcpy(buffer+size, nodes[i]->name, nodes[i]->nameLen);
                     size += nodes[i]->nameLen;
-                    buffer[size++] = '\0';
+                    buffer[size++] = '\255';
                 }
                 driver_output(d->port, buffer, size-1);
                 free(buffer);

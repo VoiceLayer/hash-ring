@@ -129,7 +129,7 @@ init(Drv) ->
 
     
     
-handle_call({create_ring, {Ring, NumReplicas, HashFunction}}, _From, #state{ port = Port, rings = Rings } = State) ->
+handle_call({create_ring, {Ring, NumReplicas, HashFunction}}, _From, #state{port = Port, rings = Rings} = State) ->
     Port ! {self(), {command, <<1:8, NumReplicas:32, HashFunction:8>>}},
     receive 
         {Port, {data, <<Index:32>>}} ->
@@ -137,7 +137,7 @@ handle_call({create_ring, {Ring, NumReplicas, HashFunction}}, _From, #state{ por
              State#state{rings = dict:store(Ring, Index, Rings)}}
     end;
 
-handle_call({delete_ring, Ring}, _From, #state{ port = Port, rings = Rings } = State) ->
+handle_call({delete_ring, Ring}, _From, #state{port = Port, rings = Rings} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             Port ! {self(), {command, <<2:8, Index:32>>}},
@@ -151,7 +151,7 @@ handle_call({delete_ring, Ring}, _From, #state{ port = Port, rings = Rings } = S
             {reply, {error, ring_not_found}, State}
     end;
 
-handle_call({has_ring, Ring}, _From, #state{ port = Port, rings = Rings } = State) ->
+handle_call({has_ring, Ring}, _From, #state{rings = Rings} = State) ->
     case dict:find(Ring, Rings) of
         {ok, _} ->
             {reply, true, State};
@@ -159,7 +159,7 @@ handle_call({has_ring, Ring}, _From, #state{ port = Port, rings = Rings } = Stat
             {reply, false, State}
     end;
 
-handle_call({add_node, {Ring, Node}}, _From, #state{ port = Port, rings = Rings } = State) ->
+handle_call({add_node, {Ring, Node}}, _From, #state{port = Port, rings = Rings} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             NodeSize = size(Node),
@@ -174,7 +174,7 @@ handle_call({add_node, {Ring, Node}}, _From, #state{ port = Port, rings = Rings 
             {reply, {error, ring_not_found}, State}
     end;
 
-handle_call({remove_node, {Ring, Node}}, _From, #state{ port = Port, rings = Rings } = State) ->
+handle_call({remove_node, {Ring, Node}}, _From, #state{port = Port, rings = Rings} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             NodeSize = size(Node),
@@ -189,7 +189,7 @@ handle_call({remove_node, {Ring, Node}}, _From, #state{ port = Port, rings = Rin
             {reply, {error, ring_not_found}, State}
     end;
 
-handle_call({find_node, {Ring, Key}}, From, #state{ port = Port, rings = Rings, queue = Queue } = State) ->
+handle_call({find_node, {Ring, Key}}, From, #state{port = Port, rings = Rings, queue = Queue} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             KeySize = size(Key),
@@ -213,7 +213,7 @@ handle_call({set_mode, {Ring, Mode}}, _From, #state{port = Port, rings = Rings} 
             {reply, {error, ring_not_found}, State}
     end;
 
-handle_call({calc_hash, {Ring, Key}}, From, #state{ port = Port, rings = Rings, queue = Queue } = State) ->
+handle_call({calc_hash, {Ring, Key}}, From, #state{port = Port, rings = Rings, queue = Queue} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             KeySize = size(Key),
@@ -227,7 +227,7 @@ handle_call({calc_hash, {Ring, Key}}, From, #state{ port = Port, rings = Rings, 
             {reply, {error, ring_not_found}, State}
     end;
 
-handle_call({get_nodes, {Ring, NodeNum, Key}}, From, #state{ port = Port, rings = Rings, queue = Queue } = State) ->
+handle_call({get_nodes, {Ring, NodeNum, Key}}, From, #state{port = Port, rings = Rings, queue = Queue} = State) ->
     case dict:find(Ring, Rings) of
         {ok, Index} ->
             KeySize = size(Key),
@@ -252,7 +252,7 @@ handle_info({Port, {data, Data}}, #state{port = Port, queue = Queue} = State) ->
         <<1:8>> ->
             {error, unknown_error};
         <<8:8, Nodes/binary>> ->
-            {ok, binary:split(Nodes, <<"\0">>, [global])};
+            {ok, binary:split(Nodes, <<"\255">>, [global])};
         <<Node/binary>> ->
             {ok, Node}
     end,
@@ -260,10 +260,10 @@ handle_info({Port, {data, Data}}, #state{port = Port, queue = Queue} = State) ->
     safe_reply(Pid, R),
     {noreply, State#state{queue = QTail}};
 
-handle_info({'EXIT', Port, _Reason} = PortExit, #state{ port = Port } = State ) ->
+handle_info({'EXIT', Port, _Reason} = PortExit, #state{port = Port} = State ) ->
     {stop, PortExit, State}.
 
-terminate({'EXIT', Port, _Reason}, #state{ port = Port }) ->
+terminate({'EXIT', Port, _Reason}, #state{port = Port}) ->
     ok;
 terminate(_, #state{ port = Port }) ->
     Port ! {self(), close},
@@ -374,5 +374,25 @@ get_nodes_test() ->
     ?assert(get_nodes(Ring, <<"foo">>, 2) == {ok, [<<"node3">>, <<"node1">>]}),
     ?assert(get_nodes(Ring, <<"foo">>, 3) == {ok, [<<"node3">>, <<"node1">>, <<"node2">>]}).
 
+get_nodes_term_test() ->
+    setup_driver(),
+    Ring = "ring",
+    ?assert(create_ring(Ring, 128) == ok),
+    ?assert(add_node(Ring, term_to_binary({nonode@nohost, list_to_pid("<0.123.0>")})) == ok),
+    ?assert(add_node(Ring, term_to_binary({nonode@nohost, list_to_pid("<0.123.1>")})) == ok),
+    ?assert(add_node(Ring, term_to_binary({nonode@nohost, list_to_pid("<0.123.2>")})) == ok),
+    ?assert(get_nodes(Ring, <<"foo">>, 1) == {ok, [term_to_binary({nonode@nohost, list_to_pid("<0.123.0>")})]}),
+    ?assert(get_nodes(Ring, <<"foo">>, 2) == {ok, [term_to_binary({nonode@nohost, list_to_pid("<0.123.0>")}),
+                                                    term_to_binary({nonode@nohost, list_to_pid("<0.123.2>")})]}),
+    ?assert(get_nodes(Ring, <<"foo">>, 3) == {ok, [term_to_binary({nonode@nohost, list_to_pid("<0.123.0>")}),
+                                                    term_to_binary({nonode@nohost, list_to_pid("<0.123.2>")}),
+                                                    term_to_binary({nonode@nohost, list_to_pid("<0.123.1>")})]}).
+
+has_ring_test() ->
+    setup_driver(),
+    ?assert(has_ring("ring") == false),
+    Ring = "ring",
+    ?assert(create_ring(Ring, 128) == ok),
+    ?assert(has_ring("ring") == true).
 
 -endif.
