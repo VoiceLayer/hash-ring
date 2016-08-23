@@ -252,7 +252,7 @@ handle_info({Port, {data, Data}}, #state{port = Port, queue = Queue} = State) ->
         <<1:8>> ->
             {error, unknown_error};
         <<8:8, Nodes/binary>> ->
-            {ok, binary:split(Nodes, <<"\255">>, [global])};
+            {ok, lists:reverse(parse_list(Nodes, []))};
         <<Node/binary>> ->
             {ok, Node}
     end,
@@ -279,6 +279,18 @@ safe_reply(undefined, _Value) ->
     ok;
 safe_reply(From, Value) ->
     gen_server:reply(From, Value).
+
+parse_list(data) ->
+    parse_list(data, []).
+
+parse_list(<<0:16/integer>>, List) -> List;
+parse_list(<<High:8/integer, Low:8/integer, Rest/binary>>, List) ->
+    Size = High*256+Low,
+    <<Take:Size/binary, Rest2/binary>> = Rest,
+    parse_list(Rest2, [<<Take:Size/binary>> | List]).
+
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Tests
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

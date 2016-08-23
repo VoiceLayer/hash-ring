@@ -203,17 +203,20 @@ static void hash_ring_drv_output(ErlDrvData handle, char *buff, ErlDrvSizeT buff
                 int size = 0;
                 int i;
                 for (i=0; i<res; i++) {
-                    size += nodes[i]->nameLen+1;
+                    size += nodes[i]->nameLen+2;
                 }
-                char *buffer = malloc(size+1);
+                char *buffer = malloc(size+3);
                 size = 0;
-                buffer[size++] = 8;
+                buffer[size++] = 8; // Response Code
                 for (i=0; i<res; i++) {
+                    buffer[size++] = (nodes[i]->nameLen >> 8) & 0xff;  // Size HSB
+                    buffer[size++] = nodes[i]->nameLen & 0xff;         // Size LSB
                     memcpy(buffer+size, nodes[i]->name, nodes[i]->nameLen);
                     size += nodes[i]->nameLen;
-                    buffer[size++] = '\255';
                 }
-                driver_output(d->port, buffer, size-1);
+                buffer[size++] = 0; // End of List
+                buffer[size++] = 0;
+                driver_output(d->port, buffer, size);
                 free(buffer);
                 free(nodes);
                 return;
