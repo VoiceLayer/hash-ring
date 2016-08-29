@@ -9,6 +9,7 @@ typedef int ErlDrvSizeT;
 typedef int ErlDrvSSizeT;
 #endif
 
+#define _htonll(x) ((1==htonl(1)) ? (x) : ((uint64_t)htonl((x) & 0xFFFFFFFF) << 32) | htonl((x) >> 32))
 
 #include "hash_ring.h"
 
@@ -186,7 +187,7 @@ static void hash_ring_drv_output(ErlDrvData handle, char *buff, ErlDrvSizeT buff
         if((bufflen - 9) == keyLen && d->numRings > index && d->ring_usage[index] == 1) {
             uint64_t keyInt;
             if(hash_ring_hash(d->rings[index], (unsigned char*)&buff[9], keyLen, &keyInt) != -1) {
-                keyInt = htonll(keyInt);
+                keyInt = _htonll(keyInt);
                 driver_output(d->port, (char*)&keyInt, sizeof(keyInt));
                 return;
             }
